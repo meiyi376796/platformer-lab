@@ -408,8 +408,9 @@ class ValueMpcTrainingMixin(ValueMpcBase):
                 neginf=low,
             )
 
-    def _update_value_weights(
+    def _update_head_weights(
         self,
+        attribute_prefix: str,
         grad_value_hidden_weights: np.ndarray,
         grad_value_hidden_bias: np.ndarray,
         grad_value_output_weights: np.ndarray,
@@ -417,13 +418,13 @@ class ValueMpcTrainingMixin(ValueMpcBase):
         optimizer: OptimizerState,
         learning_rate: float,
     ) -> None:
-        """Updates the value-head parameters."""
+        """Updates the parameters of the head with the given prefix."""
         self._apply_adam_update(
             [
-                self.value_hidden_weights,
-                self.value_hidden_bias,
-                self.value_output_weights,
-                self.value_output_bias,
+                getattr(self, attribute_prefix + "hidden_weights"),
+                getattr(self, attribute_prefix + "hidden_bias"),
+                getattr(self, attribute_prefix + "output_weights"),
+                getattr(self, attribute_prefix + "output_bias"),
             ],
             [
                 grad_value_hidden_weights,
@@ -434,6 +435,26 @@ class ValueMpcTrainingMixin(ValueMpcBase):
             optimizer,
             learning_rate,
             _ADAM_CLIP_RANGES,
+        )
+
+    def _update_value_weights(
+        self,
+        grad_value_hidden_weights: np.ndarray,
+        grad_value_hidden_bias: np.ndarray,
+        grad_value_output_weights: np.ndarray,
+        grad_value_output_bias: np.ndarray,
+        optimizer: OptimizerState,
+        learning_rate: float,
+    ) -> None:
+        """Updates the value-head parameters."""
+        self._update_head_weights(
+            "value_",
+            grad_value_hidden_weights,
+            grad_value_hidden_bias,
+            grad_value_output_weights,
+            grad_value_output_bias,
+            optimizer,
+            learning_rate,
         )
 
     def _update_state_risk_weights(
@@ -446,22 +467,14 @@ class ValueMpcTrainingMixin(ValueMpcBase):
         learning_rate: float,
     ) -> None:
         """Updates the state-risk-head parameters."""
-        self._apply_adam_update(
-            [
-                self.state_risk_hidden_weights,
-                self.state_risk_hidden_bias,
-                self.state_risk_output_weights,
-                self.state_risk_output_bias,
-            ],
-            [
-                grad_value_hidden_weights,
-                grad_value_hidden_bias,
-                grad_value_output_weights,
-                grad_value_output_bias,
-            ],
+        self._update_head_weights(
+            "state_risk_",
+            grad_value_hidden_weights,
+            grad_value_hidden_bias,
+            grad_value_output_weights,
+            grad_value_output_bias,
             optimizer,
             learning_rate,
-            _ADAM_CLIP_RANGES,
         )
 
     def _update_action_risk_weights(
@@ -474,22 +487,14 @@ class ValueMpcTrainingMixin(ValueMpcBase):
         learning_rate: float,
     ) -> None:
         """Updates the action-risk-head parameters."""
-        self._apply_adam_update(
-            [
-                self.action_risk_hidden_weights,
-                self.action_risk_hidden_bias,
-                self.action_risk_output_weights,
-                self.action_risk_output_bias,
-            ],
-            [
-                grad_value_hidden_weights,
-                grad_value_hidden_bias,
-                grad_value_output_weights,
-                grad_value_output_bias,
-            ],
+        self._update_head_weights(
+            "action_risk_",
+            grad_value_hidden_weights,
+            grad_value_hidden_bias,
+            grad_value_output_weights,
+            grad_value_output_bias,
             optimizer,
             learning_rate,
-            _ADAM_CLIP_RANGES,
         )
 
     @staticmethod
@@ -987,7 +992,7 @@ class ValueMpcTrainingMixin(ValueMpcBase):
             "action_risk_training_history",
         )
 
-    def _append_state_risk_targets(
+    def _append_risk_targets(
         self,
         features: list[FloatMatrix],
         targets: list[float],
@@ -997,28 +1002,7 @@ class ValueMpcTrainingMixin(ValueMpcBase):
         hazards: list[float],
         augment: bool = False,
     ) -> None:
-        """Appends supervision targets for the state-risk model."""
-        self._append_target_sequence(
-            features,
-            targets,
-            groups,
-            group_id,
-            episode_features,
-            self._build_risk_targets(hazards),
-            augment,
-        )
-
-    def _append_action_risk_targets(
-        self,
-        features: list[FloatMatrix],
-        targets: list[float],
-        groups: list[int],
-        group_id: int,
-        episode_features: Sequence[FloatMatrix],
-        hazards: list[float],
-        augment: bool = False,
-    ) -> None:
-        """Appends supervision targets for the action-risk model."""
+        """Appends supervision targets for a risk model."""
         self._append_target_sequence(
             features,
             targets,
@@ -1141,26 +1125,15 @@ class ValueMpcTrainingMixin(ValueMpcBase):
                 )
                 if step.done:
                     break
-            if action_conditioned:
-                self._append_action_risk_targets(
-                    features,
-                    targets,
-                    groups,
-                    episode_index,
-                    episode_features,
-                    hazards,
-                    True,
-                )
-            else:
-                self._append_state_risk_targets(
-                    features,
-                    targets,
-                    groups,
-                    episode_index,
-                    episode_features,
-                    hazards,
-                    True,
-                )
+            self._append_risk_targets(
+                features,
+                targets,
+                groups,
+                episode_index,
+                episode_features,
+                hazards,
+                True,
+            )
         return self._pack_training_set(features, targets, groups)
 
     def _collect_teacher_training_set(
